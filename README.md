@@ -5,6 +5,8 @@ Game of Go implemented in Python. It is written to be computationally cheaper th
 
     python main.py
 
+Game settings are stored in `config.json`.
+
 ## Tests ##
 
     python test.py

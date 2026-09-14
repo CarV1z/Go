@@ -1,4 +1,4 @@
-import yaml
+import json
 from src.board import Board
 from src.game import GameUI
 
@@ -7,13 +7,16 @@ def main(config):
     game.play()
 
 if __name__ == '__main__':
-
-    config = None
-    with open('config.yaml', 'r') as f:
+    size=-1
+    while size<1:
         try:
-            config = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            print(f'Error: {e}')
-
-    if config is not None:
-        main(config)
+            size=int(input("Enter board size: "))
+        except ValueError:
+            print("Must be an integer")
+    config={
+        'board_size': size,
+        'black_stone': '○',
+        'white_stone': '●',
+        'enable_self_destruct': False
+    }
+    main(config)

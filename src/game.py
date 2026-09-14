@@ -22,6 +22,32 @@ class Game(object):
         
         # count the number of consecutive passes
         self.count_pass = 0
+    def __init__(self, config, board=None, gm=None, count_pass=0):
+        if board is None:
+            self.board = Board(config)
+        else:
+            self.board = board
+        self.board_size = config['board_size']
+        if gm is None:
+            self.gm = GroupManager(self.board,
+                                   enable_self_destruct=config['enable_self_destruct'])
+        else:
+            self.gm = gm
+        self.count_pass = count_pass
+
+    def create_copy(self):
+        config={
+            "board_size": self.board_size,
+            "black_stone": self.board.black_stone_render,
+            "white_stone": self.board.white_stone_render,
+            "enable_self_destruct": self.gm.enable_self_destruct
+        }
+        new_board = Board(config)
+        for i in range(self.board_size):
+            for j in range(self.board_size):
+                if self.board[i][j] != Stone.EMPTY:
+                    new_board.board[i][j] = self.board[i][j]
+        return Game(config, board=new_board, gm=self.gm, count_pass=self.count_pass)
 
     def place_black(self, y, x):
         '''
@@ -139,9 +165,27 @@ class Game(object):
                     if stone is not None and stone != Stone.EMPTY:
                         scores[stone] += score
 
-        scores[Stone.BLACK] -= self.num_black_captured
-        scores[Stone.WHITE] -= self.num_white_captured
+        scores[Stone.BLACK] += self.num_white_captured
+        scores[Stone.WHITE] += self.num_black_captured
         return scores
+    def get_legal_moves(self,team):
+        moves=[]
+        for i in range (self.board_size):
+            for j in range(self.board_size):
+                try:
+                    new_board=self.create_copy()
+                    new_board._place_stone(team,i,j)
+                    if team=="black":
+                        if new_board.board[i][j]==Stone.BLACK:
+                            moves.append(str(i)+" "+str(j))
+                    else:
+                        if new_board.board[i][j]==Stone.WHITE:
+                            moves.append(str(i)+" "+str(j))
+                except KoException:
+                    x=1
+                except SelfDestructException:
+                    x=1
+        return moves
 
 
 class GameUI(object):

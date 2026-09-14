@@ -12,7 +12,7 @@ class Board(np.ndarray):
         # dimension of the board
         board_size = config['board_size']
         shape = (board_size, board_size)
-        obj = super(Board, cls).__new__(cls, shape, dtype=np.int)
+        obj = super(Board, cls).__new__(cls, shape, dtype=int)
 
         obj.board_size = board_size
 

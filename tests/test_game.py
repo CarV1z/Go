@@ -31,6 +31,19 @@ class TestBoard(unittest.TestCase):
         self.assertEqual(np.where(self.game.board == Stone.BLACK), (4, 4))
         self.assertEqual(np.where(self.game.board == Stone.WHITE), (4, 5))
 
+    def test__create_copy_is_independent(self):
+        self.game.place_black(1, 1)
+        copied_game = self.game.create_copy()
+
+        self.assertIsNot(copied_game.board, self.game.board)
+        self.assertIsNot(copied_game.gm, self.game.gm)
+        self.assertIsNot(copied_game.gm.board, self.game.gm.board)
+
+        copied_game.place_black(2, 2)
+
+        self.assertEqual(self.game.board[2, 2], Stone.EMPTY)
+        self.assertEqual(copied_game.board[2, 2], Stone.BLACK)
+
     def test__capture1(self):
         capture1(self.game)
         self.assertEqual(self.game.board[4, 4], Stone.EMPTY)
@@ -118,24 +131,34 @@ class TestScore(unittest.TestCase):
     def test__capture1(self):
         capture1(self.game)
         scores = self.game.get_scores()
-        self.assertEqual(scores[Stone.BLACK], -1)
-        self.assertEqual(scores[Stone.WHITE], 45)
+        self.assertEqual(scores[Stone.BLACK], 0)
+        self.assertEqual(scores[Stone.WHITE], 49)
 
     def test__capture2(self):
         capture2(self.game)
         scores = self.game.get_scores()
-        self.assertEqual(scores[Stone.BLACK], -3)
-        self.assertEqual(scores[Stone.WHITE], 42)
+        self.assertEqual(scores[Stone.BLACK], 0)
+        self.assertEqual(scores[Stone.WHITE], 49)
 
     def test__capture3(self):
         capture3(self.game)
         scores = self.game.get_scores()
-        self.assertEqual(scores[Stone.BLACK], -1)
-        self.assertEqual(scores[Stone.WHITE], 43)
+        self.assertEqual(scores[Stone.BLACK], 0)
+        self.assertEqual(scores[Stone.WHITE], 49)
 
     def test__neutral(self):
         capture2(self.game)
         self.game.place_black(1, 1)
         scores = self.game.get_scores()
-        self.assertEqual(scores[Stone.BLACK], -3)
-        self.assertEqual(scores[Stone.WHITE], 3)
+        self.assertEqual(scores[Stone.BLACK], 1)
+        self.assertEqual(scores[Stone.WHITE], 10)
+
+    def test__area_scoring(self):
+        self.game = Game({'black_stone': 'b',
+                          'white_stone': 'w',
+                          'board_size': 3,
+                          'enable_self_destruct': False})
+        self.game.place_black(1, 1)
+        scores = self.game.get_scores()
+        self.assertEqual(scores[Stone.BLACK], 9)
+        self.assertEqual(scores[Stone.WHITE], 0)

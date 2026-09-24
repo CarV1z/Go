@@ -1,5 +1,8 @@
+import copy
+import random
+
 from src.board import Board
-from src.utils import Stone, make_2d_array
+from src.utils import Stone, make_2d_array, get_opposite_stone
 from src.group import Group, GroupManager
 from src.exceptions import (
     SelfDestructException, KoException, InvalidInputException)
@@ -8,46 +11,26 @@ class Game(object):
     '''
     Manage the high level gameplay of Go
     '''
-    def __init__(self, config):
-
-        # 2D board
-        self.board = Board(config)
-
-        # dimension of the square board
-        self.board_size = config['board_size']
-
-        # group manager instance
-        self.gm = GroupManager(self.board,
-                               enable_self_destruct=config['enable_self_destruct'])
-        
-        # count the number of consecutive passes
-        self.count_pass = 0
     def __init__(self, config, board=None, gm=None, count_pass=0):
         if board is None:
             self.board = Board(config)
         else:
             self.board = board
+
         self.board_size = config['board_size']
+        self.player1 = config.get('player1', 0)
+        self.player2 = config.get('player2', 0)
+
         if gm is None:
             self.gm = GroupManager(self.board,
                                    enable_self_destruct=config['enable_self_destruct'])
         else:
             self.gm = gm
+
         self.count_pass = count_pass
 
     def create_copy(self):
-        config={
-            "board_size": self.board_size,
-            "black_stone": self.board.black_stone_render,
-            "white_stone": self.board.white_stone_render,
-            "enable_self_destruct": self.gm.enable_self_destruct
-        }
-        new_board = Board(config)
-        for i in range(self.board_size):
-            for j in range(self.board_size):
-                if self.board[i][j] != Stone.EMPTY:
-                    new_board.board[i][j] = self.board[i][j]
-        return Game(config, board=new_board, gm=self.gm, count_pass=self.count_pass)
+        return copy.deepcopy(self)
 
     def place_black(self, y, x):
         '''
@@ -85,9 +68,11 @@ class Game(object):
         Throw an exception if self-destruct or ko rules are violated
         '''
         if stone == Stone.EMPTY:
-            return
+            return False
+        if self.board[y][x]!=Stone.EMPTY:
+            return False
         self.board.place_stone(stone, y, x)
-
+        self.gm.board.place_stone(stone,y,x)
         try:
             self.gm.resolve_board(y, x)
         except SelfDestructException as e:
@@ -99,6 +84,7 @@ class Game(object):
             
         self.count_pass = 0
         self.gm.update_state()
+        return True
 
     @property
     def num_black_captured(self):
@@ -122,51 +108,50 @@ class Game(object):
 
     def get_scores(self):
         '''
-        Return the score of black and white.
-        Scoring is counted based on territorial rules, with no interpolation of dead/alive groups.
-        An area is a territory for a player if any area within that territory can only reach
-        stones of of that player.
+        Return the score under Chinese / area scoring.
+
+        Each stone on the board is worth 1 point, and each connected empty region
+        is counted for the player whose stones surround it entirely.
+        Neutral regions that touch both colors are ignored.
         '''
-        scores = {Stone.BLACK: 0,
-                  Stone.WHITE: 0
-                 }
-        traversed = make_2d_array(self.board_size, self.board_size,
-                                  default=lambda: False)
-
-        def traverse(y, x):
-            traversed[y][x] = True
-            search = [(y, x)]
-            stone = None
-            count = 1
-            is_neutral = False
-
-            while search:
-                y, x = search.pop()
-                for ly, lx in self.board.get_liberty_coords(y, x):
-                    this_stone = self.board[ly, lx]
-                    if this_stone != Stone.EMPTY:
-                        stone = stone or this_stone
-                        if stone != this_stone:
-                            is_neutral = True                
-                    if not traversed[ly][lx]:
-                        if this_stone == Stone.EMPTY:
-                            count += 1
-                            search.append((ly, lx))
-                    traversed[ly][lx] = True
-
-            if is_neutral:
-                return 0, Stone.EMPTY
-            return count, stone
+        scores = {Stone.BLACK: 0, Stone.WHITE: 0}
 
         for y in range(self.board_size):
             for x in range(self.board_size):
-                if not traversed[y][x] and self.board[y, x] == Stone.EMPTY:
-                    score, stone = traverse(y, x)
-                    if stone is not None and stone != Stone.EMPTY:
-                        scores[stone] += score
+                stone = self.board[y, x]
+                if stone == Stone.BLACK:
+                    scores[Stone.BLACK] += 1
+                elif stone == Stone.WHITE:
+                    scores[Stone.WHITE] += 1
 
-        scores[Stone.BLACK] += self.num_white_captured
-        scores[Stone.WHITE] += self.num_black_captured
+        traversed = make_2d_array(self.board_size, self.board_size,
+                                  default=lambda: False)
+
+        for y in range(self.board_size):
+            for x in range(self.board_size):
+                if traversed[y][x] or self.board[y, x] != Stone.EMPTY:
+                    continue
+
+                search = [(y, x)]
+                traversed[y][x] = True
+                region = []
+                owners = set()
+
+                while search:
+                    cy, cx = search.pop()
+                    region.append((cy, cx))
+
+                    for ly, lx in self.board.get_liberty_coords(cy, cx):
+                        neighbor = self.board[ly, lx]
+                        if neighbor == Stone.EMPTY and not traversed[ly][lx]:
+                            traversed[ly][lx] = True
+                            search.append((ly, lx))
+                        elif neighbor in (Stone.BLACK, Stone.WHITE):
+                            owners.add(neighbor)
+
+                if len(owners) == 1:
+                    scores[next(iter(owners))] += len(region)
+
         return scores
     def get_legal_moves(self,team):
         moves=[]
@@ -174,13 +159,15 @@ class Game(object):
             for j in range(self.board_size):
                 try:
                     new_board=self.create_copy()
-                    new_board._place_stone(team,i,j)
-                    if team=="black":
-                        if new_board.board[i][j]==Stone.BLACK:
-                            moves.append(str(i)+" "+str(j))
-                    else:
-                        if new_board.board[i][j]==Stone.WHITE:
-                            moves.append(str(i)+" "+str(j))
+                    success=new_board._place_stone(team,i,j)
+                    #print(new_board.board)
+                    if success:
+                        if team==Stone.BLACK:
+                            if new_board.board[i][j]==Stone.BLACK:
+                                moves.append(str(i)+" "+str(j))
+                        else:
+                            if new_board.board[i][j]==Stone.WHITE:
+                                moves.append(str(i)+" "+str(j))
                 except KoException:
                     x=1
                 except SelfDestructException:
@@ -208,9 +195,19 @@ class GameUI(object):
         while not self.game.is_over():
             is_turn_over = False
             self.game.render_board()
+            print(self.game.get_legal_moves(self.turn))
 
             while not is_turn_over:
-                move = self._prompt_move()
+                if self.turn==Stone.BLACK:
+                    if self.game.player1==1:
+                        move = self._prompt_move()
+                    else:
+                        move=self.get_move(self.turn,self.game.player1)
+                else:
+                    if self.game.player2==1:
+                        move=self._prompt_move()
+                    else:
+                        move=self.get_move(self.turn,self.game.player2)
                 if move == 'pass':
                     self.game.pass_turn()
                     is_turn_over = True
@@ -282,6 +279,19 @@ class GameUI(object):
             move = input(f'{player} move: ')
         
         return self._parse_move(move)
+
+    def get_move(self,team,player):
+        moves=self.game.get_legal_moves(team)
+        oppMoves=self.game.get_legal_moves(get_opposite_stone(team))
+        if player==0:
+            if len(moves)==0 or len(oppMoves)==0:
+                return 'pass'
+            move=random.choice(moves)
+        #else:
+        #your AI
+        #just set different numbers of player to different versions
+        return self._parse_move(move)
+        
     
     def _is_valid_input(self, move):
         '''
@@ -292,6 +302,8 @@ class GameUI(object):
             return True
         try:
             y, x = self._parse_coordinates(move)
+            if self.game.board[y][x]!=Stone.EMPTY:
+                return False
             return self.game.is_within_bounds(y, x)
         except:
             return False
